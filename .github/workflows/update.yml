@@ -1,0 +1,59 @@
+name: Update Invoice Registration Master
+
+on:
+  # 手動実行（GitHubのActionsタブから「Run workflow」で実行可能）
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: "GCSへアップロードするか"
+        type: boolean
+        default: true
+
+  # 毎月自動実行：国税庁は毎月「初稼働日」に前月末データを公開するため、
+  # 余裕を見て毎月3日 12:00 JST（03:00 UTC）に実行する。
+  # （土日祝と重なった場合の公開ズレを考慮し、3日に設定。もし取得できていなければ
+  #   Actionsタブから手動で再実行してください）
+  schedule:
+    - cron: "0 3 3 * *"
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 依存パッケージをインストール
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+
+      - name: GCP認証
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: "${{ secrets.GCP_SA_KEY }}"
+
+      - name: 国税庁データをダウンロードしてGCSへアップロード
+        env:
+          INVOICE_MASTER_BUCKET: ${{ secrets.INVOICE_MASTER_BUCKET }}
+        run: |
+          UPLOAD_FLAG="--upload"
+          if [ "${{ github.event.inputs.upload }}" = "false" ]; then
+            UPLOAD_FLAG=""
+          fi
+          python main.py $UPLOAD_FLAG
+
+      - name: 失敗時にHTMLを保存（デバッグ用）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-page-html
+          path: downloads/page_debug.html
+          if-no-files-found: ignore
