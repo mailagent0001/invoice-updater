@@ -1,0 +1,2 @@
+playwright==1.48.0
+google-cloud-storage==2.18.2
